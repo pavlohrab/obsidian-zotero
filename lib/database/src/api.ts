@@ -1,64 +1,65 @@
 import type { LogLevel } from "@obzt/common";
 import type {
-  Annotation,
-  ItemTag,
-  LibraryInfo,
-  GeneralItem,
-} from "@obzt/zotero-type";
-import type Fuse from "fuse.js";
+  DocumentSearchOptions,
+  SimpleDocumentSearchResultSetUnit,
+} from "flexsearch";
+import type { AnnotationInfo, RegularItemInfo } from "./item.js";
+import type { ItemIDLibID, ItemKeyLibID } from "./utils/database.js";
+import type { LibraryInfo, AttachmentInfo, TagInfo } from "./index.js";
 
-export interface AttachmentInfo {
-  itemID: number;
-  key: string;
-  path: string | null;
-  count?: string | number;
+export type QueryOption = DocumentSearchOptions<false>;
+export type { SimpleDocumentSearchResultSetUnit } from "flexsearch";
+
+export interface DbConnParams {
+  nativeBinding: string;
+  mainDbPath: string;
+  bbtDbPath: string;
 }
 
 export interface DbWorkerAPI {
   setLoglevel(level: LogLevel): void;
-  /* open new database, return true if successful */
+  /**
+   * open new database connection or refresh existing if no param passed in
+   * @returns return true if successful
+   */
   openDb(
-    nativeBinding: string,
-    mainDbPath: string,
-    bbtDbPath: string,
-  ): Promise<[mainDbResult: boolean, bbtDbResult: boolean]>;
-  isUpToDate(): Promise<boolean | null>;
-  refreshDb(): Promise<[mainDbResult: boolean, bbtDbResult: boolean]>;
+    params?: Partial<DbConnParams>,
+  ): [mainDbResult: boolean, bbtDbResult: boolean];
+
+  isUpToDate(): boolean | null;
   checkDbStatus(name: "main" | "bbt"): boolean;
 
   /* start index for library, need to be called before query and after openDb */
-  initIndex(libraryID: number): Promise<void>;
+  initIndex(libraryID: number): void;
 
-  query(
+  search(
     libraryID: number,
-    pattern: string | Fuse.Expression | null,
-    options?: Fuse.FuseSearchOptions,
-  ): Promise<Fuse.FuseResult<GeneralItem>[]>;
+    options: Partial<DocumentSearchOptions<false>>,
+  ): Promise<SimpleDocumentSearchResultSetUnit[]>;
   /**
    * @param item item key or item id
    */
-  getItem(
-    item: string | number,
-    libraryID: number,
-  ): Promise<GeneralItem | null>;
+  getItems(
+    items: ItemIDLibID[] | ItemKeyLibID[],
+    forceUpdate?: boolean,
+  ): (RegularItemInfo | null)[];
 
-  getLibs(): Promise<LibraryInfo[]>;
-  getAnnotations(
-    attachmentId: number,
-    libraryID: number,
-  ): Promise<Annotation[]>;
-  getAttachments(docId: number, libraryID: number): Promise<AttachmentInfo[]>;
-  getTags(
-    itemIds: number[],
-    libraryID: number,
-  ): Promise<Record<number, ItemTag[]>>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  raw<R>(sql: string, args: any[]): Promise<R>;
+  getItemsFromCache(limit: number, lib: number): RegularItemInfo[];
 
+  getLibs(): LibraryInfo[];
+  getAnnotations(attachmentId: number, libraryID: number): AnnotationInfo[];
+  getAttachments(docId: number, libraryID: number): AttachmentInfo[];
+  getTags(items: ItemIDLibID[]): Record<number, TagInfo[]>;
+
+  raw<R>(mode: "get", sql: string, args: any[]): R;
+  raw<R>(mode: "all", sql: string, args: any[]): R[];
+  raw<R>(mode: "get" | "all", sql: string, args: any[]): R | R[];
+
+  getItemIDsFromCitekey(citekeys: string[]): Record<string, number>;
   getAnnotFromKey(
     keys: string[],
     libraryID: number,
-  ): Promise<Record<string, Annotation>>;
+  ): Record<string, AnnotationInfo>;
 }
 
 type ToWorkpoolType<API extends DbWorkerAPI> = {

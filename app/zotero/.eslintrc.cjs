@@ -38,13 +38,14 @@ module.exports = {
   },
   overrides: [
     {
-      files: ["content/**/*"],
+      files: ["src/**/*"],
       env: {
         node: false,
       },
       rules: {
         "@typescript-eslint/no-explicit-any": "off",
         "@typescript-eslint/naming-convention": "off",
+        "@typescript-eslint/no-non-null-assertion": "off",
       },
     },
   ],

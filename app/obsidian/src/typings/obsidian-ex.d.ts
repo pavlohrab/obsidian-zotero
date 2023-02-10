@@ -14,6 +14,20 @@ declare module "obsidian" {
   }
   interface Workspace {
     getActiveFileView(): FileView | null;
+    ensureSideLeaf(
+      viewType: string,
+      side: "right" | "left",
+      viewState: {
+        /** @public */
+        state?: any;
+        /** @public */
+        split?: boolean;
+        /** @public */
+        reveal?: boolean;
+        /** @public */
+        active?: boolean;
+      },
+    ): any;
   }
 
   interface PluginManifest {
@@ -30,9 +44,15 @@ declare module "obsidian" {
       linktext: string,
       sourcePath: string,
     ): Promise<TFile>;
+    createNewMarkdownFile(
+      parent: TFolder,
+      path?: string,
+      content?: string,
+    ): Promise<TFile>;
   }
   interface MetadataCache {
     on(name: "finished", callback: () => any, ctx?: any): EventRef;
+    on(name: "initialized", callback: () => any, ctx?: any): EventRef;
     initialized: boolean;
   }
 

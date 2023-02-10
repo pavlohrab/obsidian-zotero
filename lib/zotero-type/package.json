@@ -6,18 +6,17 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "db-type": "node --experimental-import-meta-resolve scripts/db-type.mjs && pnpm eslint src/knex.d.ts src/db-types.ts --fix",
+    "db-type": "node --experimental-import-meta-resolve scripts/db-type.mjs && pnpm eslint src/db-types.ts --fix",
     "field-type": "node --experimental-import-meta-resolve scripts/field-type.mjs && pnpm eslint src/non-regular.ts src/regular.ts src/fields.ts src/fields.extra.ts --fix"
   },
   "devDependencies": {
-    "@aidenlx/eslint-config": "2.0.5",
+    "@aidenlx/eslint-config": "workspace:*",
     "@types/node": "^17.0.10",
-    "typescript": "^4.8.3",
-    "eslint": "~8.24.0",
-    "@aidenlx/knex": ">=2.3.0-mod <2.3.0-mod0",
+    "typescript": "^4.9.4",
+    "eslint": "~8.31.0",
     "@rmp135/sql-ts": "~1.15.0",
-    "endent": "~2.1.0",
-    "@aidenlx/better-sqlite3": ">=7.6.2-mod <7.6.2-mod0",
+    "knex": "~2.3.0",
+    "better-sqlite3": "^7.5.0",
     "@types/eslint": "~8.4.6"
   },
   "dependencies": {

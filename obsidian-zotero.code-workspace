@@ -9,16 +9,28 @@
       "path": "app/zotero"
     },
     {
+      "name": "components",
+      "path": "lib/components"
+    },
+    {
       "name": "database",
       "path": "lib/database"
     },
     {
-      "name": "note-parser",
-      "path": "lib/note-parser"
+      "name": "protocol",
+      "path": "lib/protocol"
     },
     {
-      "name": "annot-block",
-      "path": "lib/annot-block"
+      "name": "db-worker",
+      "path": "lib/db-worker"
+    },
+    {
+      "name": "zotero-helper",
+      "path": "lib/zotero-helper"
+    },
+    {
+      "name": "db-worker",
+      "path": "lib/db-worker"
     },
     {
       "name": "common",
@@ -35,6 +47,10 @@
     {
       "name": "zotero-type",
       "path": "lib/zotero-type"
+    },
+    {
+      "name": "ophidian-lib/core",
+      "path": "lib/ophidian-lib-core"
     },
     {
       "name": "root",
@@ -85,6 +101,7 @@
       "./lib/annot-block",
       "./utils/esbuild-inline-worker",
       "./lib/zotero-type",
+      "./lib/components",
       "./docs"
     ],
     "eslint.validate": [
@@ -120,17 +137,23 @@
       "obsidian/template",
       "obsidian/annot-block",
       "obsidian/setting-tab",
+      "obsidian/install-guide",
+      "obsidian/note-fields",
       "docs-site",
       "getting-started",
       "zotero",
       "lib/database",
+      "lib/db-worker",
+      "lib/components",
       "lib/note-parser",
       "lib/annot-block",
       "utils/esbuild-inline-worker",
       "lib/common",
       "lib/zotero-type",
+      "lib/zotero-helper",
       "readme",
-      "overview"
+      "overview",
+      "obsidian/topic-import"
     ],
     "[sql]": {
       "editor.defaultFormatter": "lea21st.vscode-sql-formatter"

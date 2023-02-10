@@ -1,0 +1,76 @@
+.zt-citations .suggestion-item {
+  padding-right: var(--size-2-3);
+  .suggestion-aux {
+    gap: var(--size-2-2)
+  }
+  .suggestion-hotkey {
+    display: flex;
+    --icon-size: var(--font-ui-smaller);
+    padding: 2px;
+    &:not(:last-child) {
+      margin-left: var(--size-2-2);
+    }
+  }
+  .title {
+    font-weight: var(--file-header-font-weight);
+    font-size: var(--font-ui-small);
+    .suggestion-highlight {
+      color: var(--text-accent);
+    }
+  }
+  .citekey {
+    background-color: transparent;
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-muted);
+    font-size: small;
+    padding: 1px 8px 1px;
+    text-align: center;
+    text-decoration: none;
+    vertical-align: middle;
+    display: inline-block;
+    margin: 1px 0;
+    border-radius: 14px;
+  }
+  .meta {
+    color: var(--text-faint);
+    font-size: var(--font-ui-smaller);
+    .commas-between();
+    .author-year {
+      .space-between();
+      .date {
+        .parentheses();
+      }
+    }
+    .publication {
+      font-style: italic;
+    }
+    .issue {
+      .parentheses();
+    }
+    .dot-end();
+  }
+}
+
+.parentheses() {
+  &::before {
+    content: "(";
+  }
+  &::after {
+    content: ")";
+  }
+}
+.dot-end() {
+  &::after {
+    content: ".";
+  }
+}
+.space-between() {
+  & > :not(:last-child):after {
+    content: " ";
+  }
+}
+.commas-between() {
+  & > :not(:last-child):after {
+    content: ", ";
+  }
+}

@@ -1,124 +1,80 @@
-// import "./main.less";
+import "./main.less";
 
-import type { Extension } from "@codemirror/state";
+import { use } from "@ophidian/core";
 import type { App, PluginManifest } from "obsidian";
-import { Notice, Plugin, TFolder } from "obsidian";
-import log from "@log";
+import { Plugin } from "obsidian";
 
-import { AnnotBlockWorker, registerCodeBlock } from "./annot-block";
-import { activeAtchIdAtomFamily } from "./component/atoms/attachment";
-import {
-  CitationEditorSuggest,
-  insertCitation,
-} from "./insert-citation/index.js";
 import checkLib from "./install-guide/index.jsx";
-import registerNoteFeature from "./note-feature";
-import NoteIndex from "./note-index/index.js";
-// import NoteParser from "./note-parser";
-// import PDFCache from "./pdf-outline";
-import { ZoteroSettingTab } from "./setting-tab/index.js";
-import type { ZoteroSettings } from "./settings.js";
-import { getDefaultSettings, loadSettings, saveSettings } from "./settings.js";
-import registerEtaEditorHelper from "./template/editor";
-import { ImgCacheImporter } from "./zotero-db/img-import";
-import ZoteroDb from "./zotero-db/index.js";
+import NoteFeatures from "./note-feature/service";
+import { AnnotBlock } from "./services/annot-block/service";
+import { CitekeyClick } from "./services/citekey-click/service";
+import NoteIndex from "./services/note-index/service";
+import PDFParser from "./services/pdf-parser/service";
+import { Server } from "./services/server/service";
+import {
+  TemplateComplier,
+  TemplateLoader,
+  TemplateRenderer,
+  TemplateEditorHelper,
+} from "./services/template";
+import {
+  DatabaseWorker,
+  ImgCacheImporter,
+  DatabaseWatcher,
+  ZoteroDatabase,
+} from "./services/zotero-db";
+import { ZoteroSettingTab } from "./setting-tab";
+import { SettingLoader } from "./settings/service";
+import log from "@/log";
+
+// declare global {
+//   // eslint-disable-next-line no-var
+//   var zt: ZoteroPlugin | undefined;
+// }
 
 export default class ZoteroPlugin extends Plugin {
+  use = use.plugin(this);
+
   constructor(app: App, manifest: PluginManifest) {
     super(app, manifest);
     if (!checkLib(manifest)) {
       throw new Error("Library check failed");
     }
-    this.imgCacheImporter = new ImgCacheImporter(this);
-    this.annotBlockWorker = new AnnotBlockWorker(this);
-    this.noteIndex = new NoteIndex(this);
     // this.noteParser = new NoteParser(this);
-    // this.pdfCache = new PDFCache(this);
   }
 
-  settings: ZoteroSettings = getDefaultSettings(this);
-  loadSettings = loadSettings.bind(this);
-  saveSettings = saveSettings.bind(this);
-  #db?: ZoteroDb;
-  // noteParser: NoteParser;
-  imgCacheImporter: ImgCacheImporter;
-  // pdfCache: PDFCache;
-  annotBlockWorker: AnnotBlockWorker;
-  noteIndex: NoteIndex;
+  settings = this.use(SettingLoader);
 
-  get db() {
-    if (!this.#db) throw new Error("access database before load");
-    return this.#db;
+  noteIndex = this.use(NoteIndex);
+  server = this.use(Server);
+  citekeyClick = this.use(CitekeyClick);
+  templateEditor = this.use(TemplateEditorHelper);
+  noteFeatures = this.use(NoteFeatures);
+
+  get databaseAPI() {
+    return this.dbWorker.api;
   }
-  editorExtensions: Extension[] = [];
+  dbWorker = this.use(DatabaseWorker);
+  imgCacheImporter = this.use(ImgCacheImporter);
+  dbWatcher = this.use(DatabaseWatcher);
+  database = this.use(ZoteroDatabase);
+
+  templateRenderer = this.use(TemplateRenderer);
+  templateComplier = this.use(TemplateComplier);
+  templateLoader = this.use(TemplateLoader);
+
+  annotBlockWorker = this.use(AnnotBlock);
+  pdfParser = this.use(PDFParser);
+
   async onload() {
     log.info("loading Obsidian Zotero Plugin");
-    await this.loadSettings();
-    this.#db = new ZoteroDb(this);
-    registerCodeBlock(this);
-    registerEtaEditorHelper(this);
-    this.addCommand({
-      id: "insert-markdown-citation",
-      name: "Insert Markdown citation",
-      editorCallback: insertCitation(this),
-    });
-    this.registerEditorSuggest(new CitationEditorSuggest(this));
-    this.addCommand({
-      id: "refresh-zotero-data",
-      name: "Refresh Zotero Data",
-      callback: async () => {
-        await this.db.fullRefresh();
-        new Notice("Zotero data is now up-to-date");
-      },
-    });
-    this.addCommand({
-      id: "refresh-note-index",
-      name: "Refresh Literature Notes Index",
-      callback: () => {
-        this.noteIndex.reload();
-        new Notice("Literature notes re-indexed");
-      },
-    });
     this.addSettingTab(new ZoteroSettingTab(this));
-    // getZoteroLinkHandlers(this).forEach((args) =>
-    //   this.registerObsidianProtocolHandler(...args),
-    // );
 
-    await this.db.init();
-    registerNoteFeature(this);
+    // globalThis.zt = this;
+    // this.register(() => delete globalThis.zt);
   }
 
   onunload() {
     log.info("unloading Obsidian Zotero Plugin");
-    // clean up atom family
-    activeAtchIdAtomFamily.setShouldRemove(() => true);
-    activeAtchIdAtomFamily.setShouldRemove(null);
-  }
-
-  async getLiteratureNoteFolder(): Promise<TFolder> {
-    const { literatureNoteFolder: folder } = this.settings;
-    let af = folder.getFile(this.app.vault),
-      noteFolder: TFolder;
-    if (af instanceof TFolder) {
-      noteFolder = af;
-    } else if (!af) {
-      await this.app.vault.createFolder(folder.path);
-      af = folder.getFile(this.app.vault);
-      if (!(af instanceof TFolder)) {
-        throw new Error("Failed to create note folder: " + folder.path);
-      }
-      noteFolder = af;
-    } else {
-      new Notice(
-        `Invalid note folder: ${folder.path}, revert to default folder`,
-      );
-      folder.path = "";
-      af = folder.getFile(this.app.vault);
-      if (!(af instanceof TFolder)) {
-        throw new Error("Failed to get default note folder: " + folder.path);
-      }
-      noteFolder = af;
-    }
-    return noteFolder;
   }
 }

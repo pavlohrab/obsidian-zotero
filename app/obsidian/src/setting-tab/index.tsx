@@ -1,178 +1,271 @@
 import "./styles.less";
 
-import { constants } from "fs";
-import { access } from "fs/promises";
+import { pipe } from "@mobily/ts-belt";
+import { map } from "@mobily/ts-belt/Array";
+import { fromPairs } from "@mobily/ts-belt/Dict";
 import type { LogLevel } from "@obzt/common";
 import { logLevels } from "@obzt/common";
-import { assertNever } from "assert-never";
+import getPort from "get-port";
 import { around } from "monkey-around";
 import type {
   DropdownComponent,
   ExtraButtonComponent,
   TextAreaComponent,
 } from "obsidian";
-import { debounce, Notice, PluginSettingTab, Setting } from "obsidian";
+import { Notice, PluginSettingTab, Setting } from "obsidian";
 import ReactDOM from "react-dom";
-import log from "@log";
 
-import type { SettingKeyWithType } from "../settings.js";
-import { TEMPLATE_NAMES } from "../template";
-import { EJECTABLE_TEMPLATE_NAMES } from "../template/defaults";
-import { enableBracketExtension } from "../template/editor";
-import { promptOpenLog } from "../utils/index.js";
-import type ZoteroPlugin from "../zt-main.js";
 import { DatabaseSetting } from "./database-path.js";
-
-type TextAreaSize = Partial<Record<"cols" | "rows", number>>;
+import { addTextComfirm, addTextField, addToggle, getPipeFunc } from "./utils";
+import log from "@/log";
+import { InVaultPath } from "@/settings/invault-path";
+import { ejectableTemplateTypes } from "@/services/template";
+import type { TemplateType } from "@/services/template/settings";
+import { nonEjectableTemplateTypes } from "@/services/template/settings";
+import { promptOpenLog } from "@/utils/index.js";
+import type ZoteroPlugin from "@/zt-main.js";
 
 export class ZoteroSettingTab extends PluginSettingTab {
   constructor(public plugin: ZoteroPlugin) {
     super(plugin.app, plugin);
+    this.pipe = getPipeFunc(this.plugin, this.containerEl);
   }
 
-  display(): void {
-    this.containerEl.empty();
+  // patches for life cycle
+  patchUnload(): boolean {
+    const tabContentContainer = this.containerEl.parentElement;
+    if (!tabContentContainer) {
+      throw new Error("Setting tab is not mounted");
+    }
+    if (
+      !tabContentContainer.classList.contains("vertical-tab-content-container")
+    ) {
+      log.error("Failed to patch unload, unexpected tabContentContainer");
+      console.error(tabContentContainer);
+      return false;
+    }
     // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const tab = this;
-    const unloadPatch = around(this.containerEl, {
+    const self = this;
+    const unloadPatch = around(tabContentContainer, {
       empty: (next) =>
         function (this: HTMLElement) {
-          tab.unmountDataDirSetting?.();
+          self.unload();
           next.call(this);
           unloadPatch();
         },
     });
+    log.debug("Setting tab unload patched");
+    return true;
+  }
+
+  #events: (() => void)[] = [];
+  register(func: () => void): void {
+    this.plugin.register(func);
+  }
+  unload(): void {
+    while (this.#events.length > 0) {
+      this.#events.pop()!();
+    }
+  }
+  pipe: ReturnType<typeof getPipeFunc>;
+
+  display(): void {
+    this.containerEl.empty();
+    this.patchUnload();
     this.general();
-    this.annotView();
+    // this.annotView();
     this.suggester();
     this.templates();
+    this.server();
     this.logLevel();
   }
   general(): void {
     new Setting(this.containerEl).setHeading().setName("General");
 
     this.setDataDirPath();
-    this.addToggle(this.containerEl, "autoRefresh", (val) =>
-      this.plugin.db.setAutoRefresh(val),
+
+    const { watcher, noteIndex, imgImporter } = this.plugin.settings;
+    this.pipe(
+      addToggle(
+        () => watcher.autoRefresh,
+        async (value) => {
+          return await watcher.setOption("autoRefresh", value).apply();
+        },
+      ),
     ).setName("Refresh automatically when Zotero updates database");
 
-    this.setLiteratureNoteFolder();
-    this.setImgExcerptFolder();
+    this.pipe(
+      addTextComfirm(
+        () => noteIndex.literatureNoteFolder,
+        async (value, text) => {
+          return await noteIndex
+            .setOption("literatureNoteFolder", this.normalizePath(value, text))
+            .apply();
+        },
+        { rows: 1 },
+      ),
+    ).setName("Literature Note Folder");
+
+    // #region setImgExcerptFolder
+    this.pipe(
+      this.containerEl,
+      addToggle(
+        () => imgImporter.symlinkImgExcerpt,
+        async (value) => {
+          const isChanged = await imgImporter
+            .setOption("symlinkImgExcerpt", value)
+            .apply();
+          isChanged && imgExcerptPath.settingEl.toggle(value);
+          return isChanged;
+        },
+      ),
+    ).setName("Symlink Image Excerpt");
+
+    const imgExcerptPath = this.pipe(
+      this.containerEl,
+      addTextComfirm(
+        () => imgImporter.imgExcerptPath,
+        async (value, text) => {
+          return await imgImporter
+            .setOption("imgExcerptPath", this.normalizePath(value, text))
+            .apply();
+        },
+        { rows: 1 },
+      ),
+    ).setName("Image Excerpts Folder");
+    // #endregion
+
     this.setCitationLibrary();
   }
   suggester(): void {
     new Setting(this.containerEl).setHeading().setName("Suggester");
-    this.addToggle(this.containerEl, "citationEditorSuggester").setName(
-      "Citation Editor Suggester",
-    );
-    this.addToggle(this.containerEl, "showCitekeyInSuggester").setName(
-      "Show BibTex Citekey in Suggester",
-    );
+
+    const { suggester } = this.plugin.settings;
+    this.pipe(
+      addToggle(
+        () => suggester.citationEditorSuggester,
+        async (value) => {
+          return await suggester
+            .setOption("citationEditorSuggester", value)
+            .apply();
+        },
+      ),
+    ).setName("Citation Editor Suggester");
+
+    this.pipe(
+      addToggle(
+        () => suggester.showCitekeyInSuggester,
+        async (value) => {
+          return await suggester
+            .setOption("showCitekeyInSuggester", value)
+            .apply();
+        },
+      ),
+    ).setName("Show BibTex Citekey in Suggester");
+  }
+  server(): void {
+    new Setting(this.containerEl).setHeading().setName("Server");
+
+    const { server } = this.plugin.settings;
+    this.pipe(
+      addToggle(
+        () => server.enableServer,
+        async (value) => {
+          portSetting.settingEl.toggle(value);
+          return await server.setOption("enableServer", value).apply();
+        },
+      ),
+    ).setName("Background Action Server");
+
+    const portSetting = this.pipe(
+      addTextComfirm(
+        () => `${server.serverPort}`,
+        async (value, text) => {
+          let portVal = Number.parseInt(value, 10);
+          if (isNaN(portVal) || portVal < 0 || portVal > 65535) {
+            const defaultPort = server.getDefaults().serverPort;
+            new Notice(
+              "Invalid port number, revert to default value: " + defaultPort,
+            );
+            portVal = defaultPort;
+            text.setValue(`${defaultPort}`);
+          }
+          if (portVal === server.serverPort) {
+            // no need to save if port is not changed
+            return false;
+          }
+          const portReady = await getPort({
+            host: "127.0.0.1",
+            port: [portVal],
+          });
+          console.log(portReady, portVal);
+          if (portReady !== portVal) {
+            new Notice(
+              `Port is currently occupied, a different port is provided: ${portReady}, confirm again to apply the change.`,
+            );
+            text.setValue(`${portReady}`);
+            return false;
+          }
+          const result = server.setOption("serverPort", portReady);
+          await result.apply();
+          if (result.changed) {
+            new Notice("Server port is saved and applied.");
+          }
+          return result.changed;
+        },
+        { rows: 1, cols: 6 },
+      ),
+    ).setName("Server port");
+    portSetting.settingEl.toggle(server.enableServer);
   }
   annotView(): void {
     new Setting(this.containerEl).setHeading().setName("Annotaion View");
     // this.setMutool();
   }
   setMutool() {
-    this.addTextComfirm(
-      this.containerEl,
-      () => this.plugin.settings.mutoolPath ?? "",
-      async (value: string, _text) => {
-        try {
-          await access(value, constants.X_OK);
-          new Notice("mutool path is saved.");
-          this.plugin.settings.mutoolPath = value;
-          await this.plugin.saveSettings();
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-            new Notice("File not found");
-          } else if ((error as NodeJS.ErrnoException).code === "EACCES") {
-            new Notice("File not executable");
-          } else {
-            throw error;
-          }
-        }
-      },
-      { rows: 1 },
-    ).setName("`mutool` path");
-  }
-  setLiteratureNoteFolder() {
-    const setter = async (value: string, text: TextAreaComponent) => {
-      const { literatureNoteFolder: noteFolder } = this.plugin.settings;
-      noteFolder.path = value;
-      // correct with normalized path
-      if (noteFolder.path !== value) text.setValue(noteFolder.path);
-      // update note index
-      this.plugin.noteIndex.noteFolder = noteFolder.path;
-      await this.plugin.saveSettings();
-    };
-    this.addTextComfirm(
-      this.containerEl,
-      () => this.plugin.settings.literatureNoteFolder.path,
-      setter,
-      { rows: 1 },
-    ).setName("Literature Note Folder");
+    throw new Error("Not implemented");
+    // this.pipe(
+    //   addTextComfirm(
+    //     () => this.plugin.settings.mutoolPath ?? "",
+    //     async (value: string, _text) => {
+    //       try {
+    //         await access(value, constants.X_OK);
+    //         new Notice("mutool path is saved.");
+    //         this.plugin.settings.mutoolPath = value;
+    //         return true;
+    //       } catch (error) {
+    //         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    //           new Notice("File not found");
+    //         } else if ((error as NodeJS.ErrnoException).code === "EACCES") {
+    //           new Notice("File not executable");
+    //         } else {
+    //           throw error;
+    //         }
+    //         return false;
+    //       }
+    //     },
+    //     { rows: 1 },
+    //   ),
+    // ).setName("`mutool` path");
   }
 
-  setImgExcerptFolder() {
-    const setVisible = (enabled: boolean) => {
-      const el = text.settingEl;
-      if (enabled) {
-        el.style.removeProperty("display");
-      } else {
-        el.style.setProperty("display", "none");
-      }
-    };
-    this.addToggle(this.containerEl, "symlinkImgExcerpt", setVisible).setName(
-      "Symlink Image Excerpt",
-    );
-    const setter = async (value: string, text: TextAreaComponent) => {
-      const { imgExcerptPath } = this.plugin.settings;
-      imgExcerptPath.path = value;
-      // correct with normalized path
-      if (imgExcerptPath.path !== value) text.setValue(imgExcerptPath.path);
-      await this.plugin.saveSettings();
-    };
-    const text = this.addTextComfirm(
-      this.containerEl,
-      () => this.plugin.settings.imgExcerptPath.path,
-      setter,
-      { rows: 1 },
-    ).setName("Image Excerpts Folder");
-    setVisible(this.plugin.settings.symlinkImgExcerpt);
+  normalizePath(path: string, text: TextAreaComponent) {
+    const newPath = new InVaultPath(path).path;
+    // correct with normalized path
+    if (newPath !== path) {
+      text.setValue(newPath);
+    }
+    return newPath;
   }
 
-  unmountDataDirSetting?: () => void;
   setDataDirPath() {
     const el = new Setting(this.containerEl).settingEl;
     ReactDOM.render(<DatabaseSetting plugin={this.plugin} />, el);
-    this.unmountDataDirSetting = () => ReactDOM.unmountComponentAtNode(el);
+    this.register(() => ReactDOM.unmountComponentAtNode(el));
   }
   setCitationLibrary() {
     let dropdown: DropdownComponent | null = null;
-    const renderDropdown = async (s: Setting) => {
-      dropdown && dropdown.selectEl.remove();
-      const libs = await this.plugin.db.getLibs();
-      s.addDropdown((dd) => {
-        dropdown = dd;
-        for (const { libraryID, type, groupID } of libs) {
-          if (!libraryID) continue;
-          dd.addOption(
-            libraryID.toString(),
-            type === "user" ? "My Library" : `Group ${groupID}`,
-          );
-        }
-        dd.setValue(this.plugin.settings.citationLibrary.toString()).onChange(
-          async (val) => {
-            const level = +val;
-            this.plugin.settings.citationLibrary = level;
-            await this.plugin.db.initIndex();
-            new Notice("Zotero database updated.");
-            await this.plugin.saveSettings();
-          },
-        );
-      });
-    };
+    const { plugin } = this;
     const setting: Setting = new Setting(this.containerEl)
       .setName("Citation Library")
       .addButton((cb) =>
@@ -180,37 +273,73 @@ export class ZoteroSettingTab extends PluginSettingTab {
           .setIcon("switch")
           .setTooltip("Refresh")
           .onClick(async () => {
-            await this.plugin.db.fullRefresh();
-            renderDropdown(setting);
+            await plugin.dbWorker.refresh({ task: "full" });
+            await renderDropdown(setting);
           }),
       )
       .then(renderDropdown);
+    async function renderDropdown(s: Setting) {
+      const { database } = plugin.settings;
+      if (dropdown) {
+        dropdown.selectEl.remove();
+        dropdown = null;
+      }
+      const libs = await plugin.databaseAPI.getLibs();
+      s.addDropdown((dd) => {
+        dropdown = dd;
+        dd.addOptions(
+          pipe(
+            libs,
+            map(({ libraryID, name, groupID }) => {
+              const display = name
+                ? groupID
+                  ? `${name} (Group)`
+                  : name
+                : `Library ${libraryID}`;
+              return [libraryID.toString(), display] as const;
+            }),
+            fromPairs,
+          ),
+        )
+          .setValue(database.citationLibrary.toString())
+          .onChange(async (val) => {
+            const isChanged = await database
+              .setOption("citationLibrary", +val)
+              .apply();
+            if (!isChanged) return;
+            new Notice("Zotero search index updated.");
+            await plugin.settings.save();
+          });
+      });
+    }
   }
   templates(): void {
     const { template } = this.plugin.settings;
 
     new Setting(this.containerEl).setHeading().setName("Templates");
     // template folder
-    this.addTextComfirm(
-      this.containerEl,
-      () => template.folder.path,
-      async (value: string, text: TextAreaComponent) => {
-        template.folder.path = value;
-        // correct with normalized path
-        if (template.folder.path !== value) text.setValue(template.folder.path);
-        await this.plugin.saveSettings();
-      },
-      { rows: 1 },
+    this.pipe(
+      addTextComfirm(
+        () => template.folder,
+        async (value: string, text: TextAreaComponent) => {
+          return await template
+            .setOption("folder", this.normalizePath(value, text))
+            .apply();
+        },
+        { rows: 1 },
+      ),
     )
       .setName("Template Folder")
       .setDesc("The folder which templates are ejected into and stored");
-    this.addToggle(this.containerEl, "autoPairEta", (val) => {
-      this.plugin.editorExtensions.length = 0;
-      if (val) {
-        enableBracketExtension(this.plugin);
-      }
-      app.workspace.updateOptions();
-    })
+
+    this.pipe(
+      addToggle(
+        () => template.autoPairEta,
+        async (val) => {
+          return await template.setOption("autoPairEta", val).apply();
+        },
+      ),
+    )
       .setName("Auto Pair For Eta")
       .setDesc(
         createFragment((c) => {
@@ -222,97 +351,73 @@ export class ZoteroSettingTab extends PluginSettingTab {
           });
         }),
       );
+
     new Setting(this.containerEl).setHeading().setName("Simple");
-    for (const key of TEMPLATE_NAMES) {
-      let title: string;
-      const desc: string | DocumentFragment = "";
-      switch (key) {
-        case "filename":
-          title = "Note Filename";
-          break;
-        case "citation":
-          title = "Markdown primary citation template";
-          break;
-        case "altCitation":
-          title = "Markdown secondary citation template";
-          break;
-        default:
-          continue;
-      }
-      const setting = this.addTextField(
-        this.containerEl,
-        () => template.getTemplate(key),
-        (value) => template.complie(key, value),
-        { rows: 2 },
-      ).setName(title);
-      if (desc) setting.setDesc(desc);
+    for (const key of nonEjectableTemplateTypes) {
+      const { title, desc } = templateDesc[key];
+      this.pipe(
+        addTextComfirm(
+          () => template.templates[key],
+          async (value) => template.setTemplate(key, value),
+          { rows: 2 },
+        ),
+      )
+        .setName(title)
+        .then((setting) => desc && setting.setDesc(desc));
     }
-    let ejectButton: ExtraButtonComponent = {} as never;
+
     const setting = new Setting(this.containerEl)
       .setHeading()
       .setName("Ejectable")
-      .setDesc("These templates can be customized once ejected into vault");
+      .setDesc("These templates can be customized once ejected into vault")
+      .addExtraButton((btn) =>
+        btn.then(setEjectButton).onClick(async () => {
+          await template.setOption("ejected", !template.ejected).apply();
+          await this.plugin.settings.save();
+          setEjectButton(btn);
+          setEjectLabel(labelEl);
+          this.setEjectableTemplates(ejectableContainer);
+        }),
+      );
 
     const labelEl = setting.controlEl.createDiv();
-    setting.addExtraButton((btn) => {
-      ejectButton = btn;
-    });
-
-    const setEjectButton = () => {
-      let icon, text, desc;
-      if (!template.ejected) {
-        icon = "folder-input";
-        text = "Eject";
-        desc = "Eject templates into vault";
-      } else {
-        icon = "x-circle";
-        text = "Revert";
-        desc = "Revert templates to default";
-      }
-      ejectButton.setIcon(icon).setTooltip(desc);
-      labelEl.setText(text);
-    };
-    setEjectButton();
-    ejectButton.onClick(async () => {
-      template.ejected = !template.ejected;
-      await this.plugin.saveSettings();
-      await template.loadAll();
-      setEjectButton();
-      this.setEjectableTemplates(ejectableContainer);
-    });
+    setEjectLabel(labelEl);
 
     const ejectableContainer = this.containerEl.createDiv();
     this.setEjectableTemplates(ejectableContainer);
+
+    function setEjectButton(btn: ExtraButtonComponent) {
+      let icon, desc;
+      if (!template.ejected) {
+        icon = "folder-input";
+        desc = "Eject templates into vault";
+      } else {
+        icon = "x-circle";
+        desc = "Revert templates to default";
+      }
+      btn.setIcon(icon).setTooltip(desc);
+    }
+    function setEjectLabel(label: HTMLElement) {
+      if (!template.ejected) {
+        label.setText("Eject");
+      } else {
+        label.setText("Revert");
+      }
+    }
   }
   setEjectableTemplates(container: HTMLElement) {
     container.empty();
     const { template } = this.plugin.settings;
-    for (const name of EJECTABLE_TEMPLATE_NAMES) {
-      let title,
-        desc: string | DocumentFragment = "";
-      switch (name) {
-        case "note":
-          title = "Note Content";
-          desc = "Used to render created literature note";
-          break;
-        case "annotation":
-          title = "Annotaion";
-          desc = "Used to render single annotation";
-          break;
-        case "annots":
-          title = "Annotations";
-          desc = "Used to render annotation list when batch importing";
-          break;
-        default:
-          assertNever(name);
-      }
+    for (const name of ejectableTemplateTypes) {
+      const { title, desc } = templateDesc[name];
+      const loader = this.plugin.templateLoader;
       if (template.ejected) {
         new Setting(container)
           .setName(name)
           .setDesc(desc)
           .then((setting) =>
             setting.controlEl.createDiv("", (el) => {
-              el.createEl("code", { text: template.getTemplateFile(name) });
+              el.createEl("code", { text: loader.getTemplateFile(name) });
             }),
           )
           .addButton((btn) =>
@@ -325,18 +430,16 @@ export class ZoteroSettingTab extends PluginSettingTab {
                   return;
                 }
                 await app.workspace.openLinkText(
-                  template.getTemplateFile(name),
+                  loader.getTemplateFile(name),
                   "",
                 );
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (this as any).setting.close();
               }),
           );
       } else {
-        this.addTextField(
+        this.pipe(
           container,
-          () => template.getTemplate(name),
-          (value) => template.complie(name, value),
+          addTextField(() => loader.getTemplate(name)),
         )
           .setName(title)
           .setDesc(desc)
@@ -352,7 +455,7 @@ export class ZoteroSettingTab extends PluginSettingTab {
         createFragment((frag) => {
           frag.appendText("Change level of logs output to the console.");
           frag.createEl("br");
-          frag.appendText("Set to DEBUG if debug is required");
+          frag.appendText("Set to DEBUG if you need to report a issue");
           frag.createEl("br");
           frag.appendText("To check console, " + promptOpenLog());
         }),
@@ -362,63 +465,35 @@ export class ZoteroSettingTab extends PluginSettingTab {
           .addOptions(logLevels)
           .setValue(log.level.toString())
           .onChange(async (val) => {
-            const level = val as LogLevel;
-            log.level = level;
-            await this.plugin.db.setLoglevel(level);
-            this.plugin.settings.logLevel = level;
-            await this.plugin.saveSettings();
+            if (
+              await this.plugin.settings.log
+                .setOption("level", val as LogLevel)
+                .apply()
+            ) {
+              await this.plugin.settings.save();
+            }
           }),
       );
   };
-
-  addToggle(
-    addTo: HTMLElement,
-    key: SettingKeyWithType<boolean>,
-    set?: (value: boolean) => void,
-  ): Setting {
-    return new Setting(addTo).addToggle((toggle) => {
-      toggle.setValue(this.plugin.settings[key]).onChange((value) => {
-        this.plugin.settings[key] = value;
-        set?.(value);
-        this.plugin.saveSettings();
-      });
-    });
-  }
-  addTextField(
-    addTo: HTMLElement,
-    get: () => string,
-    set: (value: string) => void,
-    size: TextAreaSize = {},
-    timeout = 500,
-  ): Setting {
-    return new Setting(addTo).addTextArea((text) => {
-      const onChange = async (value: string) => {
-        set(value);
-        await this.plugin.saveSettings();
-      };
-      text.setValue(get()).onChange(debounce(onChange, timeout, true));
-      Object.assign(text.inputEl, { cols: 30, rows: 5, ...size });
-    });
-  }
-  addTextComfirm(
-    addTo: HTMLElement,
-    get: () => string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    set: (value: string, text: TextAreaComponent) => any,
-    size: TextAreaSize = {},
-  ) {
-    let component: TextAreaComponent;
-    return new Setting(addTo)
-      .addTextArea((txt) => {
-        component = txt;
-        txt.setValue(get());
-        Object.assign(txt.inputEl, size);
-      })
-      .addButton((btn) =>
-        btn
-          .setIcon("checkmark")
-          .setTooltip("Apply")
-          .onClick(() => set(component.getValue(), component)),
-      );
-  }
 }
+
+const templateDesc: Record<
+  TemplateType,
+  { title: string; desc: DocumentFragment | string }
+> = {
+  filename: { title: "Note Filename", desc: "" },
+  citation: { title: "Markdown primary citation template", desc: "" },
+  altCitation: { title: "Markdown secondary citation template", desc: "" },
+  note: {
+    title: "Note Content",
+    desc: "Used to render created literature note",
+  },
+  annotation: {
+    title: "Annotaion",
+    desc: "Used to render single annotation",
+  },
+  annots: {
+    title: "Annotations",
+    desc: "Used to render annotation list when batch importing",
+  },
+};

@@ -10,7 +10,7 @@ const { getDefaultIgnorePatterns } = require("@aidenlx/eslint-config/helpers");
 
 const typescriptOptions = {
   tsconfigRootDir: __dirname,
-  project: "tsconfig.json",
+  project: "tsconfig.eslint.json",
 };
 
 /**
@@ -34,21 +34,6 @@ module.exports = {
   rules: {
     "react/no-unknown-property": ["error", { ignore: ["aria-label-delay"] }],
     "jsx-a11y/aria-props": "off",
-    "@typescript-eslint/no-non-null-assertion": "off",
-    "import/no-unresolved": [
-      2,
-      {
-        ignore: [
-          "worker:",
-          "\\.less$",
-          "@electron/remote",
-          "react-dom",
-          "dompurify",
-          "^@assets/",
-          "^@utils",
-        ],
-      },
-    ],
   },
   settings: {
     "import/resolver": {

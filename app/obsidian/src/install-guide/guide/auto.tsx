@@ -1,12 +1,12 @@
 import { useMemoizedFn } from "ahooks";
 import clsx from "clsx";
 import { atom, useAtomValue, useSetAtom } from "jotai";
-import log from "../../logger";
-import { useIconRef } from "../../utils/icon";
 import { binaryFullPathAtom, binaryLinkAtom, modalAtom } from "./atom";
 import { ListItem } from "./list-item";
 import { Loading } from "./loading";
-import { downloadModule, importModule } from "./utils";
+import { checkModuleStatus, downloadModule, importModule } from "./utils";
+import { logError } from "@/log";
+import { useIconRef } from "@/utils/icon";
 
 enum InstallState {
   Idle,
@@ -50,7 +50,7 @@ const setErrorAtom = atom(
   ) => {
     set(installStateAtom, InstallState.Failed);
     const message = "Failed to install module when " + InstallState[phrase];
-    log.error(message, error);
+    logError(message, error);
     set(
       errorMessageAtom,
       message + ": " + (error instanceof Error ? error.message : `${error}`),
@@ -72,6 +72,12 @@ const useInstallModule = () => {
     setInstallState(InstallState.Downloading);
     let binary;
     try {
+      const status = await checkModuleStatus(downloadUrl);
+      if (status === 404) {
+        throw new Error(
+          `Requested module not available (${downloadUrl}), please open an issue on GitHub`,
+        );
+      }
       binary = await downloadModule(downloadUrl);
     } catch (error) {
       setError([InstallState.Downloading, error]);

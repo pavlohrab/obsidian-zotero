@@ -1,26 +1,47 @@
 /* eslint-disable @typescript-eslint/naming-convention */
+
+import { join } from "path/posix";
+import { betterSqlite3 } from "@obzt/common";
+import type { PluginManifest } from "obsidian";
+import { Platform } from "obsidian";
+import _PLATFORM_SUPPORT from "@/platform.json";
+
+const appDataDir: string | null = Platform.isDesktopApp
+  ? // eslint-disable-next-line @typescript-eslint/no-var-requires
+    require("@electron/remote").app.getPath("userData")
+  : null;
+
 export const {
   arch,
   platform,
   versions: { modules, electron },
 } = process;
 
-export type ModuleVersions = keyof typeof PLATFORM_SUPPORT;
+export type ModuleVersions = keyof typeof _PLATFORM_SUPPORT;
 
-export const PLATFORM_SUPPORT = {
-  "103": {
-    darwin: ["arm64", "x64"],
-    linux: ["x64"],
-    win32: ["x64", "ia32"],
-  },
-} as Record<"103", Record<string, string[]>>;
+export const PLATFORM_SUPPORT = _PLATFORM_SUPPORT as Record<
+  ModuleVersions,
+  Record<string, string[]>
+>;
 
-export const isElectronSupported = ({ modules }: PlatformDetails) =>
-  modules in PLATFORM_SUPPORT;
+/**
+ * @returns 0 if the version is supported, 1 if the version is newer than the latest supported version, -1 if the version is not supported
+ */
+export const compareElectronVer = ({ modules }: PlatformDetails): number => {
+  if (modules in PLATFORM_SUPPORT) return 0;
+  const supportedVersions = Object.keys(PLATFORM_SUPPORT);
+  const supportedVersionsNum = supportedVersions
+    .map((v) => parseInt(v, 10))
+    .sort((a, b) => a - b);
+  const modulesNum = parseInt(modules, 10);
+  // If the version is newer than the latest supported version
+  if (modulesNum > supportedVersionsNum[supportedVersionsNum.length - 1]) {
+    return 1;
+  }
+  return -1;
+};
 
-export const isPlatformSupported = (details: PlatformDetails) => {
-  if (!isElectronSupported(details)) return false;
-  const { platform, arch } = details;
+export const isPlatformSupported = ({ platform, arch }: PlatformDetails) => {
   return !!PLATFORM_SUPPORT[modules as ModuleVersions][platform]?.includes(
     arch,
   );
@@ -50,29 +71,24 @@ export const getPlatformDetails = () => {
   }
 };
 
-import { join } from "path/posix";
-import { betterSqlite3 } from "@obzt/common";
-import type { PluginManifest } from "obsidian";
-import { FileSystemAdapter, Platform } from "obsidian";
-
 export const getBinaryVersion = (manifest: PluginManifest) =>
   manifest.versions?.["better-sqlite3"];
 
-export const getBinaryPath = (manifest: PluginManifest) => {
+export const getBinaryFullPath = (manifest: PluginManifest) => {
+  if (!appDataDir) return null;
   const binaryVersion = getBinaryVersion(manifest);
-  if (!binaryVersion) {
-    return null;
-  }
-  return join(app.vault.configDir, betterSqlite3(binaryVersion));
+  if (!binaryVersion) return null;
+
+  return join(appDataDir, betterSqlite3(binaryVersion));
 };
 
-export const getBinaryFullPath = (manifest: PluginManifest): string | null => {
-  const binaryPath = getBinaryPath(manifest);
-  if (!binaryPath) {
-    return null;
-  }
-  if (!(app.vault.adapter instanceof FileSystemAdapter)) {
-    return null;
-  }
-  return app.vault.adapter.getFullPath(binaryPath);
-};
+// export const getBinaryFullPath = (manifest: PluginManifest): string | null => {
+//   const binaryPath = getBinaryPath(manifest);
+//   if (!binaryPath) {
+//     return null;
+//   }
+//   if (!(app.vault.adapter instanceof FileSystemAdapter)) {
+//     return null;
+//   }
+//   return app.vault.adapter.getFullPath(binaryPath);
+// };

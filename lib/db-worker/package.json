@@ -1,0 +1,36 @@
+{
+  "name": "@obzt/db-worker",
+  "version": "0.0.1",
+  "scripts": {
+    "build": "",
+    "check": "tsc --noEmit",
+    "dev": "tsc --project tsconfig.build.json && cross-env BUILD=development node esbuild.config.mjs"
+  },
+  "type": "module",
+  "main": "src/main.ts",
+  "exports": {
+    ".": "./src/main.ts",
+    "./tsconfig": "./tsconfig.build.json"
+  },
+  "devDependencies": {
+    "@aidenlx/eslint-config": "workspace:*",
+    "@types/node": "^17.0.10",
+    "typescript": "^4.9.4",
+    "eslint": "~8.31.0",
+    "cross-env": "^7.0.3",
+    "@types/eslint": "~8.4.6",
+    "@types/flexsearch": "~0.7.3"
+  },
+  "dependencies": {
+    "@aidenlx/better-sqlite3": ">=8.0.1-mod.1 <8.0.1-mod.2",
+    "@obzt/zotero-type": "workspace:*",
+    "@aidenlx/workerpool": ">=6.2.1-mod.13 <6.2.1-mod0",
+    "@obzt/common": "workspace:*",
+    "log4js": "~6.6.1",
+    "assert-never": "^1.2.1",
+    "@mobily/ts-belt": "^4.0.0-rc.5",
+    "localforage": "~1.10.0",
+    "@obzt/database": "workspace:*",
+    "flexsearch": "~0.7.31"
+  }
+}
